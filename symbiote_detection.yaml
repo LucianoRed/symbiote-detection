@@ -1,0 +1,109 @@
+- hosts: all
+  gather_facts: false
+  tasks:
+  - name: Initiate Variables
+    set_fact:
+      Mfiles: [] 
+      points: 0
+
+# ===============================================
+# First, check for suspicious files
+# ===============================================
+
+  - name: Create temporary dir for file testing
+    file:
+     path: /tmp/symbtest
+     state: directory
+     mode: 0755
+
+  - name: Create suspect files to detect abstence
+    file:
+     path: "/tmp/symbtest/{{ item }}"
+     state: touch
+     mode: 0755
+    loop: "{{ lookup('file', 'files.txt').splitlines() }}"
+
+  - name: Calculate number of files
+    set_fact:
+      Mfiles: "{{ Mfiles + [ item ] }}"
+    loop: "{{ lookup('file', 'files.txt').splitlines() }}"  
+
+  - name: Gather number of files using ls
+    shell: "ls /tmp/symbtest | wc -l"
+    register: ls_result
+  
+  - name: Validate if number of files is lower than expected
+    set_fact:
+      points: "{{ points|int + 10|int }}"
+    when: "{{ ls_result.stdout|int }} < {{ Mfiles|length }}" 
+
+
+# ===============================================
+# Next, check ports opened
+# ===============================================
+  - name: Try to connect on suspicioous ports on host
+    wait_for: 
+     host: "{{ inventory_hostname }}"
+     port: "{{ item }}"
+     timeout: 1   
+    loop: "{{ lookup('file', 'ports.txt').splitlines() }}"
+    delegate_to: localhost
+    register: result_ports
+    ignore_errors: yes
+   
+  - name: Validate check
+    set_fact:
+      points: "{{ points|int + 1|int }}"
+    when: item.failed == false
+    loop: "{{ result_ports.results }}"
+
+
+# ===============================================
+# Next, check if syslogk is present
+# https://decoded.avast.io/davidalvarez/linux-threat-hunting-syslogk-a-kernel-rootkit-found-under-development-in-the-wild/
+# ===============================================
+
+  - name: Check if syslogk is present
+    shell: "echo '1'>/proc/syslogk"
+    # shell: "echo '1'>/tmp/teste.txt"
+    register: result_syslogk
+    become: true
+    ignore_errors: yes
+
+  - name: Validate check
+    set_fact:
+      points: "{{ points|int + 10|int }}"
+    when: result_syslogk.rc == 0
+
+
+# ===============================================
+# TODO: Check process list
+# ===============================================
+
+# ===============================================
+# TODO: Check if LD_PRELOAD exists and file exists
+# ===============================================
+  - name: Check if LD_PRELOAD env exists
+    shell: "env | grep LD_PRELOAD"
+    register: result_env_ld_preload
+    become: true
+    ignore_errors: yes
+
+  - name: Validate check
+    set_fact:
+      points: "{{ points|int + 1|int }}"
+    when: result_env_ld_preload.rc == 0
+
+  - name: Check if /etc/ld.so.preload exists
+    stat:
+      path: "/etc/ld.so.preload"
+    register: result_etc_ld_preload
+
+  - debug: var=result_etc_ld_preload
+
+  - name: Validate check
+    set_fact:
+      points: "{{ points|int + 1|int }}"
+    when: result_etc_ld_preload.stat.exists == true
+
+  - debug: var=points
