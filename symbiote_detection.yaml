@@ -107,3 +107,18 @@
     when: result_etc_ld_preload.stat.exists == true
 
   - debug: var=points
+
+
+# ===================================
+# Clean stuff
+# ===================================
+  - name: Delete files
+    file:
+     path: "/tmp/symbtest/{{ item }}"
+     state: absent
+    loop: "{{ lookup('file', 'files.txt').splitlines() }}"
+
+  - name: Delete files
+    file:
+     path: "/tmp/symbtest"
+     state: absent
